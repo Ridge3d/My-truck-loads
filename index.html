@@ -24,6 +24,7 @@
   <!-- Other Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
 
   <!-- Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet">
@@ -70,10 +71,21 @@
     #contactForm input, #contactForm textarea { width: 100%; margin-bottom: 10px; padding: 10px; border-radius: 5px; border: 1px solid #ccc; }
     #contactForm button { background: var(--swede-dark-red); }
     select.input { background-color: white; border-color: var(--swede-red); }
+    .account-panel { margin: 20px; padding: 16px; background: var(--swede-black); color: white; border: 2px solid var(--swede-red); border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,.2); }
+    .account-panel h2 { color: white; margin: 0 0 10px; }
+    .account-controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+    .account-controls .input { margin: 0; }
+    .account-controls button { margin: 0; }
+    #syncStatus { text-align: center; margin: 10px 0 0; color: #ffd6d6; font-weight: bold; }
+    .secondary-button { background: #444; }
+    [hidden] { display: none !important; }
     @media (max-width: 700px) {
       nav { gap: 12px; padding: 12px 8px; font-size: 0.9em; }
       table { width: 100%; margin: 20px 0; font-size: 0.82em; }
       .centered-form, .form-grid { margin-left: 10px; margin-right: 10px; }
+      .account-panel { margin: 12px 10px; }
+      .account-controls { display: grid; grid-template-columns: 1fr; }
+      .account-controls .input, .account-controls button { width: 100%; }
     }
     @media print { button, select, input, form, #contactButton, canvas, h2, #contactForm, nav { display: none; } }
   </style>
@@ -87,6 +99,22 @@
   <a href="#payHistory">Pay History</a>
   <a href="#contactButton">Contact</a>
 </nav>
+
+<section class="account-panel" aria-labelledby="accountHeading">
+  <h2 id="accountHeading">Cloud Sync</h2>
+  <div id="signedOutControls" class="account-controls">
+    <input id="authEmail" class="input" type="email" autocomplete="email" placeholder="Email address">
+    <input id="authPassword" class="input" type="password" autocomplete="current-password" minlength="6" placeholder="Password">
+    <button type="button" onclick="signIn()">Sign In</button>
+    <button type="button" class="secondary-button" onclick="signUp()">Create Account</button>
+  </div>
+  <div id="signedInControls" class="account-controls" hidden>
+    <span id="signedInEmail"></span>
+    <button type="button" onclick="syncNow()">Sync Now</button>
+    <button type="button" class="secondary-button" onclick="signOut()">Sign Out</button>
+  </div>
+  <p id="syncStatus" role="status">Local mode — sign in to sync across devices.</p>
+</section>
 
 <!-- Top Input Section -->
 <div class="centered-form" id="top">
@@ -222,6 +250,14 @@
   <button onclick="hideContact()">Cancel</button>
 </div>
 <script>
+const SUPABASE_URL = 'https://btczxqgjnofyoqyfxiuc.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_RA-GnD9JawOi_Z1VgvcIlg_tUg-dswM';
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+let currentUser = null;
+let syncTimer = null;
+let syncChannel = null;
+let applyingCloudData = false;
+
 // Initialize EmailJS
 (function() {
   emailjs.init({ publicKey: "ulpFopQGvh1FnFPMp" });
@@ -281,6 +317,12 @@ const chartTypeSelect = document.getElementById('chartType');
 const totalsDiv = document.getElementById('totalsDiv');
 const historicalStats = document.getElementById('historicalStats');
 const payHistoryBody = document.getElementById('payHistoryBody');
+const authEmail = document.getElementById('authEmail');
+const authPassword = document.getElementById('authPassword');
+const signedOutControls = document.getElementById('signedOutControls');
+const signedInControls = document.getElementById('signedInControls');
+const signedInEmail = document.getElementById('signedInEmail');
+const syncStatus = document.getElementById('syncStatus');
 
 // Save Driver Info
 function saveDriverInfo() {
@@ -289,6 +331,7 @@ function saveDriverInfo() {
   localStorage.setItem('employeeNumber', employeeNumber.value);
   localStorage.setItem('payCutoffDate', payCutoffDate.value);
   localStorage.setItem('mileagePayGlobal', mileagePayGlobal.value);
+  scheduleCloudSync();
 }
 function loadDriverInfo() {
   driverName.value = localStorage.getItem('driverName') || '';
@@ -342,6 +385,160 @@ function loadEntries() {
 // Save Entries
 function saveEntries() {
   localStorage.setItem('entries', JSON.stringify(entries));
+  scheduleCloudSync();
+}
+
+function cloudPayload() {
+  return {
+    version: 1,
+    entries,
+    settings: {
+      driverName: driverName.value,
+      truckNumber: truckNumber.value,
+      employeeNumber: employeeNumber.value,
+      payCutoffDate: payCutoffDate.value,
+      mileagePayGlobal: mileagePayGlobal.value
+    }
+  };
+}
+
+function setSyncStatus(message, isError = false) {
+  syncStatus.textContent = message;
+  syncStatus.style.color = isError ? '#ff9a9a' : '#ffd6d6';
+}
+
+function scheduleCloudSync() {
+  if (!currentUser || applyingCloudData) return;
+  clearTimeout(syncTimer);
+  setSyncStatus('Saving changes…');
+  syncTimer = setTimeout(pushCloudData, 500);
+}
+
+async function pushCloudData() {
+  if (!currentUser || applyingCloudData) return;
+  const { error } = await supabaseClient.from('truck_load_sync').upsert({
+    user_id: currentUser.id,
+    payload: cloudPayload(),
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'user_id' });
+  if (error) {
+    console.error('Cloud save failed:', error);
+    setSyncStatus('Cloud save failed — your local copy is safe.', true);
+    return;
+  }
+  setSyncStatus(`Synced ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
+}
+
+function applyCloudPayload(payload) {
+  if (!payload || typeof payload !== 'object') return;
+  applyingCloudData = true;
+  try {
+    entries = Array.isArray(payload.entries) ? payload.entries : [];
+    const settings = payload.settings || {};
+    driverName.value = settings.driverName || '';
+    truckNumber.value = settings.truckNumber || '';
+    employeeNumber.value = settings.employeeNumber || '';
+    payCutoffDate.value = settings.payCutoffDate || '';
+    mileagePayGlobal.value = settings.mileagePayGlobal || '';
+    localStorage.setItem('entries', JSON.stringify(entries));
+    localStorage.setItem('driverName', driverName.value);
+    localStorage.setItem('truckNumber', truckNumber.value);
+    localStorage.setItem('employeeNumber', employeeNumber.value);
+    localStorage.setItem('payCutoffDate', payCutoffDate.value);
+    localStorage.setItem('mileagePayGlobal', mileagePayGlobal.value);
+    loadEntries();
+  } finally {
+    applyingCloudData = false;
+  }
+}
+
+async function pullCloudData({ uploadIfEmpty = false } = {}) {
+  if (!currentUser) return;
+  setSyncStatus('Checking cloud data…');
+  const { data, error } = await supabaseClient.from('truck_load_sync')
+    .select('payload, updated_at')
+    .eq('user_id', currentUser.id)
+    .maybeSingle();
+  if (error) {
+    console.error('Cloud load failed:', error);
+    setSyncStatus('Could not reach the cloud — using local data.', true);
+    return;
+  }
+  if (!data) {
+    if (uploadIfEmpty) await pushCloudData();
+    return;
+  }
+  applyCloudPayload(data.payload);
+  setSyncStatus(`Synced ${new Date(data.updated_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
+}
+
+function subscribeToCloud() {
+  if (syncChannel) supabaseClient.removeChannel(syncChannel);
+  if (!currentUser) return;
+  syncChannel = supabaseClient.channel(`truck-loads-${currentUser.id}`)
+    .on('postgres_changes', {
+      event: '*', schema: 'public', table: 'truck_load_sync',
+      filter: `user_id=eq.${currentUser.id}`
+    }, ({ new: row }) => {
+      if (row && row.payload) {
+        applyCloudPayload(row.payload);
+        setSyncStatus('Synced from another device.');
+      }
+    })
+    .subscribe();
+}
+
+async function handleSession(session) {
+  currentUser = session?.user || null;
+  signedOutControls.hidden = !!currentUser;
+  signedInControls.hidden = !currentUser;
+  signedInEmail.textContent = currentUser ? currentUser.email : '';
+  if (!currentUser) {
+    if (syncChannel) supabaseClient.removeChannel(syncChannel);
+    syncChannel = null;
+    setSyncStatus('Local mode — sign in to sync across devices.');
+    return;
+  }
+  subscribeToCloud();
+  await pullCloudData({ uploadIfEmpty: true });
+}
+
+async function signUp() {
+  const email = authEmail.value.trim();
+  const password = authPassword.value;
+  if (!email || password.length < 6) {
+    setSyncStatus('Enter an email and a password with at least 6 characters.', true);
+    return;
+  }
+  setSyncStatus('Creating account…');
+  const { data, error } = await supabaseClient.auth.signUp({
+    email, password,
+    options: { emailRedirectTo: window.location.origin }
+  });
+  if (error) return setSyncStatus(error.message, true);
+  if (data.session) await handleSession(data.session);
+  else setSyncStatus('Check your email to confirm the account, then sign in.');
+}
+
+async function signIn() {
+  const email = authEmail.value.trim();
+  const password = authPassword.value;
+  if (!email || !password) return setSyncStatus('Enter your email and password.', true);
+  setSyncStatus('Signing in…');
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) return setSyncStatus(error.message, true);
+  authPassword.value = '';
+  await handleSession(data.session);
+}
+
+async function signOut() {
+  await supabaseClient.auth.signOut();
+  await handleSession(null);
+}
+
+async function syncNow() {
+  if (!currentUser) return;
+  await pushCloudData();
 }
 
 // Submit Entry
@@ -625,10 +822,19 @@ function generatePayHistory() {
 }
 
 // Load Everything
-window.onload = () => {
+window.onload = async () => {
   loadDriverInfo();
   loadEntries();
+  [driverName, truckNumber, employeeNumber, payCutoffDate, mileagePayGlobal]
+    .forEach(input => input.addEventListener('change', saveDriverInfo));
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  await handleSession(session);
 };
+supabaseClient.auth.onAuthStateChange((_event, session) => {
+  setTimeout(() => handleSession(session), 0);
+});
+window.addEventListener('online', () => currentUser && pullCloudData());
+window.addEventListener('focus', () => currentUser && pullCloudData());
 paidFilter.onchange = loadEntries;
 chartTypeSelect.onchange = loadEntries;
 </script>
