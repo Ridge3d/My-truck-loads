@@ -69,6 +69,8 @@
     tbody tr:hover { background-color: #f6cdd0; }
     .paid-row { background-color: #e3f2e5 !important; }
     .double-underline { font-weight: bold; margin: 20px auto; padding: 14px 20px; max-width: 520px; font-size: 1.3em; text-align: center; color: white; background: var(--swede-black); border-bottom: 5px double var(--swede-red); border-radius: 8px; }
+    .averages-launch { display: flex; justify-content: center; margin: -8px 10px 22px; }
+    .averages-launch button { min-width: 220px; }
     #historicalData, #payHistory { margin: 28px 20px; padding: 12px 0 20px; background: rgba(255,255,255,0.75); border-top: 5px solid var(--swede-red); border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
     #historicalStats { padding: 0 24px; }
     footer { margin-top: 40px; text-align: center; }
@@ -237,6 +239,10 @@
 
 <!-- Cumulative Total -->
 <div id="totalsDiv" class="double-underline"></div>
+
+<div class="averages-launch">
+  <button type="button" onclick="window.location.href='averages.html'">📊 View Averages</button>
+</div>
 
 <!-- Load Log Table -->
 <table id="logTable">
