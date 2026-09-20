@@ -235,7 +235,17 @@ function sendEmail() {
 }
 
 // Variables
-let entries = JSON.parse(localStorage.getItem('entries')) || [];
+function readSavedEntries() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('entries') || '[]');
+    return Array.isArray(saved) ? saved : [];
+  } catch (error) {
+    console.warn('Saved load data could not be read:', error);
+    return [];
+  }
+}
+
+let entries = readSavedEntries();
 let editingIndex = null;
 let shipperChart, destinationChart, trailerChart;
 
@@ -383,7 +393,20 @@ function exportExcel() {
 
 // Backup & Restore
 function downloadBackup() {
-  const data = JSON.stringify(entries, null, 2);
+  const backup = {
+    app: 'My Truck Loads',
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    settings: {
+      driverName: driverName.value,
+      truckNumber: truckNumber.value,
+      employeeNumber: employeeNumber.value,
+      payCutoffDate: payCutoffDate.value,
+      mileagePayGlobal: mileagePayGlobal.value
+    },
+    entries
+  };
+  const data = JSON.stringify(backup, null, 2);
   const blob = new Blob([data], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -398,9 +421,73 @@ function loadBackup(event) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = function(e) {
-    entries = JSON.parse(e.target.result);
-    saveEntries();
-    loadEntries();
+    try {
+      const parsed = JSON.parse(e.target.result);
+      const sourceEntries = Array.isArray(parsed)
+        ? parsed
+        : (Array.isArray(parsed.entries) ? parsed.entries
+          : (Array.isArray(parsed.loads) ? parsed.loads
+            : (Array.isArray(parsed.data) ? parsed.data : null)));
+
+      if (!sourceEntries) {
+        throw new Error('No load records were found in this backup.');
+      }
+
+      const text = (value) => value == null ? '' : String(value).trim();
+      const number = (value) => {
+        const cleaned = typeof value === 'string' ? value.replace(/[$,]/g, '').trim() : value;
+        const result = Number(cleaned);
+        return Number.isFinite(result) ? result : 0;
+      };
+      const yesNo = (value) => value === true || value === 1 || /^(true|yes|paid|1)$/i.test(text(value));
+      const first = (record, names, fallback = '') => {
+        for (const name of names) {
+          if (record[name] !== undefined && record[name] !== null) return record[name];
+        }
+        return fallback;
+      };
+
+      const restored = sourceEntries
+        .filter(record => record && typeof record === 'object' && !Array.isArray(record))
+        .map(record => ({
+          date: text(first(record, ['date', 'loadDate', 'load_date'])),
+          loadNumber: text(first(record, ['loadNumber', 'load_number', 'load_no', 'load', 'loadNo', 'loadNum'])),
+          shipper: text(first(record, ['shipper', 'pickup', 'origin'])),
+          destination: text(first(record, ['destination', 'delivery', 'dest'])),
+          trailer: text(first(record, ['trailer', 'trailerNumber', 'trailer_number', 'trailerNo'])),
+          emptyMileage: number(first(record, ['emptyMileage', 'emptyMiles', 'empty_miles', 'empty'], 0)),
+          loadedMileage: number(first(record, ['loadedMileage', 'loadedMiles', 'loaded_miles', 'loaded'], 0)),
+          extraIncome: number(first(record, ['extraIncome', 'extraPay', 'extra_pay', 'extra'], 0)),
+          paid: yesNo(first(record, ['paid', 'isPaid', 'is_paid'], false))
+        }));
+
+      if (sourceEntries.length > 0 && restored.length === 0) {
+        throw new Error('The backup contains data, but none of its records could be recognized.');
+      }
+
+      const settings = (!Array.isArray(parsed) && parsed.settings && typeof parsed.settings === 'object')
+        ? parsed.settings : {};
+      driverName.value = text(first(settings, ['driverName', 'driver_name'], driverName.value));
+      truckNumber.value = text(first(settings, ['truckNumber', 'truck_number'], truckNumber.value));
+      employeeNumber.value = text(first(settings, ['employeeNumber', 'employee_number'], employeeNumber.value));
+      payCutoffDate.value = text(first(settings, ['payCutoffDate', 'pay_cutoff_date'], payCutoffDate.value));
+      mileagePayGlobal.value = text(first(settings, ['mileagePayGlobal', 'mileagePay', 'payRate'], mileagePayGlobal.value));
+
+      entries = restored;
+      saveEntries();
+      saveDriverInfo();
+      loadEntries();
+      alert(`✅ Restored ${entries.length} load${entries.length === 1 ? '' : 's'} successfully.`);
+    } catch (error) {
+      console.error('Backup restore failed:', error);
+      alert(`❌ This backup could not be opened. ${error.message}`);
+    } finally {
+      event.target.value = '';
+    }
+  };
+  reader.onerror = function() {
+    alert('❌ The selected file could not be read. Please choose the JSON backup again.');
+    event.target.value = '';
   };
   reader.readAsText(file);
 }
