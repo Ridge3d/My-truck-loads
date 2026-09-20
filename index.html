@@ -63,10 +63,13 @@
     .double-underline { font-weight: bold; margin: 20px auto; padding: 14px 20px; max-width: 520px; font-size: 1.3em; text-align: center; color: white; background: var(--swede-black); border-bottom: 5px double var(--swede-red); border-radius: 8px; }
     #historicalData, #payHistory { margin: 28px 20px; padding: 12px 0 20px; background: rgba(255,255,255,0.75); border-top: 5px solid var(--swede-red); border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
     #historicalStats { padding: 0 24px; }
-    footer { margin-top: 40px; text-align: center; font-size: 0.9em; color: #555; }
+    footer { margin-top: 40px; text-align: center; }
+    .standard-footer { background: linear-gradient(135deg, var(--swede-black), #250000); color: white; border-top: 5px solid var(--swede-red); padding: 24px 16px; }
+    .standard-footer p { margin: 0 0 14px; }
+    .footer-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+    .footer-links a, .footer-links button { display: inline-block; width: auto; margin: 0; padding: 9px 16px; color: white; background: transparent; border: 1px solid var(--swede-red); border-radius: 999px; text-decoration: none; font-weight: bold; box-shadow: none; }
+    .footer-links a:hover, .footer-links button:hover { color: white; background: var(--swede-red); transform: none; }
     .chart-container { margin: 30px auto; max-width: 900px; padding: 16px; background: white; border-top: 5px solid var(--swede-red); border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-    #contactButton { background: linear-gradient(180deg, var(--swede-red), var(--swede-dark-red)); margin-top: 10px; width: auto; padding: 10px 20px; border-radius: 20px; }
-    #contactButton:hover { background: var(--swede-black); }
     #contactForm { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; box-shadow: 0 0 10px rgba(0,0,0,0.3); border-radius: 10px; z-index: 2000; }
     #contactForm input, #contactForm textarea { width: 100%; margin-bottom: 10px; padding: 10px; border-radius: 5px; border: 1px solid #ccc; }
     #contactForm button { background: var(--swede-dark-red); }
@@ -230,10 +233,14 @@
   <canvas id="trailerChart"></canvas>
 </div>
 
-<!-- Footer -->
-<footer>
-  <p>© 2025 Apex Web Solutions</p>
-  <button id="contactButton" onclick="showContact()">Contact Us</button>
+<!-- Standard App Footer -->
+<footer class="standard-footer">
+  <p>© 2025 Apex Web Solutions · The Sarcastic Swede</p>
+  <div class="footer-links">
+    <a href="https://thesarcasticswede.com/">Main Blog</a>
+    <a href="https://thesarcasticswede.com/the-swedes-app-garage/">More Apps</a>
+    <button type="button" id="contactButton" onclick="showContact()">Contact Us</button>
+  </div>
 </footer>
 
 <!-- Contact Form -->
