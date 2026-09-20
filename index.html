@@ -83,7 +83,12 @@
     #contactForm button { background: var(--swede-dark-red); }
     select.input { background-color: white; border-color: var(--swede-red); }
     .account-panel { margin: 20px; padding: 16px; background: var(--swede-black); color: white; border: 2px solid var(--swede-red); border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,.2); }
-    .account-panel h2 { color: white; margin: 0 0 10px; }
+    .account-panel h2 { color: white; margin: 0; }
+    .account-panel .panel-toggle { background: transparent; border: 0; box-shadow: none; padding: 0; }
+    .account-panel .panel-toggle:hover { background: transparent; transform: none; }
+    .account-panel .panel-toggle-label { color: white; font-size: 1.3rem; }
+    .account-panel .panel-toggle-state { color: #ffd6d6; }
+    #syncDetails { margin-top: 12px; }
     .account-controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
     .account-controls .input { margin: 0; }
     .account-controls button { margin: 0; }
@@ -143,19 +148,24 @@
 </nav>
 
 <section class="account-panel" aria-labelledby="accountHeading">
-  <h2 id="accountHeading">Cloud Sync</h2>
-  <div id="signedOutControls" class="account-controls">
-    <input id="authEmail" class="input" type="email" autocomplete="email" placeholder="Email address">
-    <input id="authPassword" class="input" type="password" autocomplete="current-password" minlength="6" placeholder="Password">
-    <button type="button" onclick="signIn()">Sign In</button>
-    <button type="button" class="secondary-button" onclick="signUp()">Create Account</button>
+  <button type="button" class="panel-toggle" id="syncPanelToggle" aria-expanded="true" aria-controls="syncDetails" onclick="toggleSyncPanel()">
+    <span class="panel-toggle-label" id="accountHeading">Cloud Sync &amp; Sign In</span>
+    <span class="panel-toggle-state" id="syncPanelState">− Minimize</span>
+  </button>
+  <div id="syncDetails">
+    <div id="signedOutControls" class="account-controls">
+      <input id="authEmail" class="input" type="email" autocomplete="email" placeholder="Email address">
+      <input id="authPassword" class="input" type="password" autocomplete="current-password" minlength="6" placeholder="Password">
+      <button type="button" onclick="signIn()">Sign In</button>
+      <button type="button" class="secondary-button" onclick="signUp()">Create Account</button>
+    </div>
+    <div id="signedInControls" class="account-controls" hidden>
+      <span id="signedInEmail"></span>
+      <button type="button" onclick="syncNow()">Sync Now</button>
+      <button type="button" class="secondary-button" onclick="signOut()">Sign Out</button>
+    </div>
+    <p id="syncStatus" role="status">Local mode — sign in to sync across devices.</p>
   </div>
-  <div id="signedInControls" class="account-controls" hidden>
-    <span id="signedInEmail"></span>
-    <button type="button" onclick="syncNow()">Sync Now</button>
-    <button type="button" class="secondary-button" onclick="signOut()">Sign Out</button>
-  </div>
-  <p id="syncStatus" role="status">Local mode — sign in to sync across devices.</p>
 </section>
 
 <!-- Personal and Pay Information -->
@@ -373,6 +383,9 @@ const syncStatus = document.getElementById('syncStatus');
 const driverPanelToggle = document.getElementById('driverPanelToggle');
 const driverPanelState = document.getElementById('driverPanelState');
 const driverDetails = document.getElementById('driverDetails');
+const syncPanelToggle = document.getElementById('syncPanelToggle');
+const syncPanelState = document.getElementById('syncPanelState');
+const syncDetails = document.getElementById('syncDetails');
 
 function setDriverPanelCollapsed(collapsed) {
   driverDetails.hidden = collapsed;
@@ -383,6 +396,17 @@ function setDriverPanelCollapsed(collapsed) {
 
 function toggleDriverPanel() {
   setDriverPanelCollapsed(!driverDetails.hidden);
+}
+
+function setSyncPanelCollapsed(collapsed) {
+  syncDetails.hidden = collapsed;
+  syncPanelToggle.setAttribute('aria-expanded', String(!collapsed));
+  syncPanelState.textContent = collapsed ? '+ Show Sign In' : '− Minimize';
+  localStorage.setItem('syncPanelCollapsed', String(collapsed));
+}
+
+function toggleSyncPanel() {
+  setSyncPanelCollapsed(!syncDetails.hidden);
 }
 
 // Save Driver Info
@@ -886,6 +910,7 @@ function generatePayHistory() {
 window.onload = async () => {
   loadDriverInfo();
   setDriverPanelCollapsed(localStorage.getItem('driverPanelCollapsed') === 'true');
+  setSyncPanelCollapsed(localStorage.getItem('syncPanelCollapsed') === 'true');
   loadEntries();
   [driverName, truckNumber, employeeNumber, payCutoffDate, mileagePayGlobal]
     .forEach(input => input.addEventListener('change', saveDriverInfo));
