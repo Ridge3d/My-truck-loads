@@ -176,10 +176,6 @@
   <option value="paid">Paid</option>
   <option value="unpaid">Unpaid</option>
 </select>
-<select id="chartType" class="input">
-  <option value="bar">Bar</option>
-  <option value="pie">Pie</option>
-</select>
 
 <!-- Cumulative Total -->
 <div id="totalsDiv" class="double-underline"></div>
@@ -313,7 +309,6 @@ const entryForm = document.getElementById('entryForm');
 const submitButton = document.getElementById('submitButton');
 const logTableBody = document.getElementById('logTableBody');
 const paidFilter = document.getElementById('paidFilter');
-const chartTypeSelect = document.getElementById('chartType');
 const totalsDiv = document.getElementById('totalsDiv');
 const historicalStats = document.getElementById('historicalStats');
 const payHistoryBody = document.getElementById('payHistoryBody');
@@ -747,17 +742,17 @@ function drawCharts(shipperCounts, destinationCounts, trailerCounts) {
   if (trailerChart) trailerChart.destroy();
 
   shipperChart = new Chart(document.getElementById('shipperChart'), {
-    type: chartTypeSelect.value,
+    type: 'bar',
     data: { labels: Object.keys(shipperCounts), datasets: [{ data: Object.values(shipperCounts), backgroundColor: 'rgba(75, 192, 192, 0.7)' }] },
     options: { responsive: true }
   });
   destinationChart = new Chart(document.getElementById('destinationChart'), {
-    type: chartTypeSelect.value,
+    type: 'bar',
     data: { labels: Object.keys(destinationCounts), datasets: [{ data: Object.values(destinationCounts), backgroundColor: 'rgba(153, 102, 255, 0.7)' }] },
     options: { responsive: true }
   });
   trailerChart = new Chart(document.getElementById('trailerChart'), {
-    type: chartTypeSelect.value,
+    type: 'bar',
     data: { labels: Object.keys(trailerCounts), datasets: [{ data: Object.values(trailerCounts), backgroundColor: 'rgba(255, 159, 64, 0.7)' }] },
     options: { responsive: true }
   });
@@ -836,7 +831,6 @@ supabaseClient.auth.onAuthStateChange((_event, session) => {
 window.addEventListener('online', () => currentUser && pullCloudData());
 window.addEventListener('focus', () => currentUser && pullCloudData());
 paidFilter.onchange = loadEntries;
-chartTypeSelect.onchange = loadEntries;
 </script>
 </body>
 </html>
