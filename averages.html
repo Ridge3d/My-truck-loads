@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Truck Loads — Averages</title>
+  <meta name="theme-color" content="#780000">
+  <link rel="icon" type="image/svg+xml" href="truck-loads-icon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --red: #c1121f;
+      --dark-red: #780000;
+      --black: #171717;
+      --cream: #fff7f7;
+      --white: #fff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      padding: 24px 16px;
+      font-family: Roboto, sans-serif;
+      color: var(--black);
+      background: linear-gradient(180deg, #f7e8e8 0%, #f4f4f4 48%, #ececec 100%);
+    }
+    main { width: min(900px, 100%); margin: 0 auto; }
+    .page-header {
+      padding: 22px 16px;
+      color: var(--white);
+      text-align: center;
+      background: linear-gradient(135deg, var(--black), var(--dark-red));
+      border-bottom: 5px solid var(--red);
+      border-radius: 14px;
+      box-shadow: 0 5px 15px rgba(0,0,0,.2);
+    }
+    h1 { margin: 0 0 6px; font-size: clamp(1.7rem, 6vw, 2.5rem); }
+    .page-header p { margin: 0; color: #ffd6d6; }
+    .year-control {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+      margin: 20px 0;
+      font-weight: 700;
+    }
+    select {
+      min-width: 130px;
+      padding: 10px;
+      color: var(--black);
+      background: var(--white);
+      border: 2px solid var(--red);
+      border-radius: 8px;
+      font: inherit;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .stat-card {
+      min-width: 0;
+      padding: 22px 16px;
+      text-align: center;
+      background: var(--white);
+      border: 1px solid #d6b4b7;
+      border-top: 6px solid var(--red);
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,.12);
+    }
+    .stat-card.primary { color: var(--white); background: var(--black); border-color: var(--dark-red); }
+    .stat-label { margin-bottom: 8px; font-weight: 700; }
+    .stat-value { color: var(--dark-red); font-size: clamp(1.8rem, 8vw, 3rem); font-weight: 700; overflow-wrap: anywhere; }
+    .stat-card.primary .stat-value { color: #ff737d; }
+    .details {
+      margin-top: 18px;
+      padding: 16px;
+      background: var(--cream);
+      border-left: 6px solid var(--dark-red);
+      border-radius: 10px;
+      line-height: 1.5;
+    }
+    .details p { margin: 6px 0; }
+    .empty-state { text-align: center; font-weight: 700; color: var(--dark-red); }
+    .actions { display: flex; justify-content: center; margin-top: 22px; }
+    button {
+      min-width: 220px;
+      padding: 12px 18px;
+      color: var(--white);
+      background: linear-gradient(180deg, var(--red), var(--dark-red));
+      border: 1px solid #5f0000;
+      border-radius: 9px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 3px 7px rgba(0,0,0,.2);
+    }
+    button:hover { background: var(--black); }
+    footer { margin-top: 28px; text-align: center; color: #555; font-size: .9rem; }
+    @media (max-width: 600px) {
+      body { padding: 10px; }
+      .stats-grid { grid-template-columns: 1fr; gap: 12px; }
+      .year-control { align-items: stretch; flex-direction: column; text-align: center; }
+      select, button { width: 100%; }
+      .stat-card { padding: 18px 12px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="page-header">
+      <h1>Truck Load Averages</h1>
+      <p>Weekly performance by year</p>
+    </header>
+
+    <div class="year-control">
+      <label for="yearSelect">Select Year:</label>
+      <select id="yearSelect"></select>
+    </div>
+
+    <section class="stats-grid" aria-live="polite">
+      <article class="stat-card primary">
+        <div class="stat-label">Average Weekly Income</div>
+        <div class="stat-value" id="averageIncome">$0.00</div>
+      </article>
+      <article class="stat-card primary">
+        <div class="stat-label">Average Weekly Miles</div>
+        <div class="stat-value" id="averageMiles">0</div>
+      </article>
+      <article class="stat-card">
+        <div class="stat-label">Total Income</div>
+        <div class="stat-value" id="totalIncome">$0.00</div>
+      </article>
+      <article class="stat-card">
+        <div class="stat-label">Total Miles</div>
+        <div class="stat-value" id="totalMiles">0</div>
+      </article>
+    </section>
+
+    <section class="details" id="details"></section>
+
+    <div class="actions">
+      <button type="button" onclick="returnToLog()">← Return to Load Log</button>
+    </div>
+
+    <footer>© 2026 API LLC · The Sarcastic Swede</footer>
+  </main>
+
+  <script>
+    function safeNumber(value) {
+      const cleaned = typeof value === 'string' ? value.replace(/[$,]/g, '').trim() : value;
+      const result = Number(cleaned);
+      return Number.isFinite(result) ? result : 0;
+    }
+
+    function readEntries() {
+      try {
+        const saved = JSON.parse(localStorage.getItem('entries') || '[]');
+        return Array.isArray(saved) ? saved : [];
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function entryYear(entry) {
+      const match = String(entry.date || '').match(/^(\d{4})/);
+      return match ? Number(match[1]) : null;
+    }
+
+    function wednesdayWeekKey(dateText) {
+      const parts = String(dateText || '').split('-').map(Number);
+      if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
+      const date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+      const daysSinceWednesday = (date.getUTCDay() - 3 + 7) % 7;
+      date.setUTCDate(date.getUTCDate() - daysSinceWednesday);
+      return date.toISOString().slice(0, 10);
+    }
+
+    const entries = readEntries();
+    const payRate = safeNumber(localStorage.getItem('mileagePayGlobal'));
+    const yearSelect = document.getElementById('yearSelect');
+    const averageIncome = document.getElementById('averageIncome');
+    const averageMiles = document.getElementById('averageMiles');
+    const totalIncome = document.getElementById('totalIncome');
+    const totalMiles = document.getElementById('totalMiles');
+    const details = document.getElementById('details');
+
+    function populateYears() {
+      const years = [...new Set(entries.map(entryYear).filter(Boolean))].sort((a, b) => b - a);
+      if (!years.length) years.push(new Date().getFullYear());
+      years.forEach(year => {
+        const option = document.createElement('option');
+        option.value = year;
+        option.textContent = year;
+        yearSelect.appendChild(option);
+      });
+    }
+
+    function updateAverages() {
+      const year = Number(yearSelect.value);
+      const yearEntries = entries.filter(entry => entryYear(entry) === year);
+      const weeks = new Map();
+
+      yearEntries.forEach(entry => {
+        const key = wednesdayWeekKey(entry.date);
+        if (!key) return;
+        const miles = safeNumber(entry.emptyMileage) + safeNumber(entry.loadedMileage);
+        const income = miles * payRate + safeNumber(entry.extraIncome);
+        const week = weeks.get(key) || { miles: 0, income: 0, loads: 0 };
+        week.miles += miles;
+        week.income += income;
+        week.loads += 1;
+        weeks.set(key, week);
+      });
+
+      const weekCount = weeks.size;
+      const totals = [...weeks.values()].reduce((sum, week) => ({
+        miles: sum.miles + week.miles,
+        income: sum.income + week.income,
+        loads: sum.loads + week.loads
+      }), { miles: 0, income: 0, loads: 0 });
+
+      averageIncome.textContent = `$${(weekCount ? totals.income / weekCount : 0).toFixed(2)}`;
+      averageMiles.textContent = Math.round(weekCount ? totals.miles / weekCount : 0).toLocaleString();
+      totalIncome.textContent = `$${totals.income.toFixed(2)}`;
+      totalMiles.textContent = Math.round(totals.miles).toLocaleString();
+
+      details.innerHTML = weekCount
+        ? `<p><strong>Recorded Weeks:</strong> ${weekCount}</p>
+           <p><strong>Total Loads:</strong> ${totals.loads}</p>
+           <p><strong>Mileage Rate Used:</strong> $${payRate.toFixed(2)} per mile</p>
+           <p>Weekly averages use Wednesday-through-Tuesday weeks containing at least one recorded load.</p>`
+        : `<p class="empty-state">No recorded loads were found for ${year}.</p>`;
+    }
+
+    function returnToLog() {
+      if (window.history.length > 1) window.history.back();
+      else window.location.href = 'index.html';
+    }
+
+    populateYears();
+    yearSelect.addEventListener('change', updateAverages);
+    updateAverages();
+  </script>
+</body>
+</html>
