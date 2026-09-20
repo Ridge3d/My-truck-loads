@@ -245,6 +245,16 @@ function readSavedEntries() {
   }
 }
 
+function safeNumber(value) {
+  const cleaned = typeof value === 'string' ? value.replace(/[$,]/g, '').trim() : value;
+  const result = Number(cleaned);
+  return Number.isFinite(result) ? result : 0;
+}
+
+function mileageRate() {
+  return safeNumber(mileagePayGlobal.value);
+}
+
 let entries = readSavedEntries();
 let editingIndex = null;
 let shipperChart, destinationChart, trailerChart;
@@ -283,7 +293,7 @@ function loadDriverInfo() {
 // Calculate Unpaid Total
 function calculateUnpaidTotal() {
   return entries.filter(e => !e.paid)
-    .reduce((sum, e) => sum + (e.loadedMileage + e.emptyMileage) * parseFloat(mileagePayGlobal.value) + e.extraIncome, 0);
+    .reduce((sum, e) => sum + (safeNumber(e.loadedMileage) + safeNumber(e.emptyMileage)) * mileageRate() + safeNumber(e.extraIncome), 0);
 }
 
 // Load Entries
@@ -296,7 +306,11 @@ function loadEntries() {
   entries.sort((a, b) => new Date(a.date) - new Date(b.date))
     .filter(e => filter === 'all' || (filter === 'paid' && e.paid) || (filter === 'unpaid' && !e.paid))
     .forEach((e, i) => {
-      const total = (e.loadedMileage + e.emptyMileage) * parseFloat(mileagePayGlobal.value) + e.extraIncome;
+      const emptyMiles = safeNumber(e.emptyMileage);
+      const loadedMiles = safeNumber(e.loadedMileage);
+      const extraPay = safeNumber(e.extraIncome);
+      const rate = mileageRate();
+      const total = (loadedMiles + emptyMiles) * rate + extraPay;
       if (!e.paid) totalIncome += total;
       shipperCounts[e.shipper] = (shipperCounts[e.shipper] || 0) + 1;
       destinationCounts[e.destination] = (destinationCounts[e.destination] || 0) + 1;
@@ -304,8 +318,8 @@ function loadEntries() {
       logTableBody.innerHTML += `
         <tr class="${e.paid ? 'paid-row' : ''}">
           <td>${i + 1}</td><td>${e.date}</td><td>${e.loadNumber}</td><td>${e.shipper}</td>
-          <td>${e.destination}</td><td>${e.trailer}</td><td>${e.emptyMileage}</td><td>${e.loadedMileage}</td>
-          <td>${parseFloat(mileagePayGlobal.value).toFixed(2)}</td><td>${e.extraIncome.toFixed(2)}</td>
+          <td>${e.destination}</td><td>${e.trailer}</td><td>${emptyMiles}</td><td>${loadedMiles}</td>
+          <td>${rate.toFixed(2)}</td><td>${extraPay.toFixed(2)}</td>
           <td>${total.toFixed(2)}</td><td>${e.paid ? '✅' : ''}</td>
           <td><button onclick="editEntry(${i})">✏️</button><button onclick="deleteEntry(${i})">🗑️</button></td>
         </tr>`;
@@ -506,7 +520,7 @@ function updateHistorical() {
   entries.forEach(e => {
     if (e.emptyMileage > (longestEmpty.miles || 0)) longestEmpty = { miles: e.emptyMileage, shipper: e.shipper, destination: e.destination };
     if (e.loadedMileage > (longestLoaded.miles || 0)) longestLoaded = { miles: e.loadedMileage, shipper: e.shipper, destination: e.destination };
-    const totalPay = (e.loadedMileage + e.emptyMileage) * parseFloat(mileagePayGlobal.value) + e.extraIncome;
+    const totalPay = (safeNumber(e.loadedMileage) + safeNumber(e.emptyMileage)) * mileageRate() + safeNumber(e.extraIncome);
     if (totalPay > (highestPay.amount || 0)) highestPay = { amount: totalPay, shipper: e.shipper, destination: e.destination };
     trailerCount[e.trailer] = (trailerCount[e.trailer] || 0) + 1;
   });
@@ -568,9 +582,9 @@ function generatePayHistory() {
     let totalMiles = 0, totalPay = 0, extraPay = 0;
 
     loads.forEach(e => {
-      totalMiles += e.loadedMileage + e.emptyMileage;
-      totalPay += (e.loadedMileage + e.emptyMileage) * parseFloat(mileagePayGlobal.value);
-      extraPay += e.extraIncome;
+      totalMiles += safeNumber(e.loadedMileage) + safeNumber(e.emptyMileage);
+      totalPay += (safeNumber(e.loadedMileage) + safeNumber(e.emptyMileage)) * mileageRate();
+      extraPay += safeNumber(e.extraIncome);
     });
 
     periods.push({
