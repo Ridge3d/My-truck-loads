@@ -107,6 +107,7 @@
     .account-controls button { margin: 0; }
     #syncStatus { text-align: center; margin: 10px 0 0; color: #ffd6d6; font-weight: bold; }
     .secondary-button { background: #444; }
+    #returnTopButton { position: fixed; right: 18px; bottom: max(18px, env(safe-area-inset-bottom)); z-index: 1500; width: 50px; height: 50px; margin: 0; padding: 0; border-radius: 50%; font-size: 1.65rem; line-height: 1; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
     [hidden] { display: none !important; }
     @media (max-width: 700px) {
       body { padding-top: 58px; }
@@ -156,8 +157,9 @@
       #contactForm { width: calc(100% - 20px); max-height: calc(100vh - 24px); overflow-y: auto; padding: 16px; }
       .footer-links { display: grid; grid-template-columns: 1fr; }
       .footer-links a, .footer-links button { width: 100%; }
+      #returnTopButton { right: 12px; width: 46px; height: 46px; font-size: 1.45rem; }
     }
-    @media print { button, select, input, form, #contactButton, canvas, h2, #contactForm, nav { display: none; } }
+    @media print { button, select, input, form, #contactButton, #returnTopButton, canvas, h2, #contactForm, nav { display: none; } }
   </style>
 </head>
 <body>
@@ -328,6 +330,8 @@
   <canvas id="trailerChart"></canvas>
 </div>
 
+<button type="button" id="returnTopButton" aria-label="Return to top" title="Return to top" hidden>↑</button>
+
 <!-- Standard App Footer -->
 <footer class="standard-footer">
   <p>© 2026 API LLC · The Sarcastic Swede</p>
@@ -428,6 +432,7 @@ const driverDetails = document.getElementById('driverDetails');
 const syncPanelToggle = document.getElementById('syncPanelToggle');
 const syncPanelState = document.getElementById('syncPanelState');
 const syncDetails = document.getElementById('syncDetails');
+const returnTopButton = document.getElementById('returnTopButton');
 
 function setDriverPanelCollapsed(collapsed) {
   driverDetails.hidden = collapsed;
@@ -450,6 +455,18 @@ function setSyncPanelCollapsed(collapsed) {
 function toggleSyncPanel() {
   setSyncPanelCollapsed(!syncDetails.hidden);
 }
+
+function updateReturnTopButton() {
+  returnTopButton.hidden = window.scrollY < 500;
+}
+
+function returnToTop() {
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  window.scrollTo({ top: 0, behavior: reducedMotion ? 'auto' : 'smooth' });
+}
+
+returnTopButton.addEventListener('click', returnToTop);
+window.addEventListener('scroll', updateReturnTopButton, { passive: true });
 
 // Save Driver Info
 function saveDriverInfo() {
@@ -1087,6 +1104,7 @@ window.onload = async () => {
   loadDriverInfo();
   setDriverPanelCollapsed(localStorage.getItem('driverPanelCollapsed') === 'true');
   setSyncPanelCollapsed(localStorage.getItem('syncPanelCollapsed') === 'true');
+  updateReturnTopButton();
   loadEntries();
   [driverName, truckNumber, employeeNumber, payCutoffDate, mileagePayGlobal, payPeriodDays]
     .forEach(input => input.addEventListener('change', saveDriverInfo));
