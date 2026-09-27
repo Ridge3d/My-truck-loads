@@ -197,6 +197,19 @@
     <label>Mileage Pay Rate:</label>
     <input type="number" id="mileagePayGlobal" class="input" step="0.01" placeholder="Pay per Mile">
   </div>
+  <div>
+    <label for="payFrequency">Pay Frequency:</label>
+    <select id="payFrequency" class="input">
+      <option value="weekly">Weekly</option>
+      <option value="biweekly">Bi-weekly</option>
+      <option value="monthly">Monthly</option>
+      <option value="daily">Daily</option>
+    </select>
+  </div>
+  <div>
+    <label for="payPeriodDays">Days in Pay Period:</label>
+    <input type="number" id="payPeriodDays" class="input" min="1" max="366" step="1" inputmode="numeric" value="7">
+  </div>
   </div>
 </section>
 <!-- Main Title -->
@@ -373,6 +386,8 @@ const truckNumber = document.getElementById('truckNumber');
 const employeeNumber = document.getElementById('employeeNumber');
 const payCutoffDate = document.getElementById('payCutoffDate');
 const mileagePayGlobal = document.getElementById('mileagePayGlobal');
+const payFrequency = document.getElementById('payFrequency');
+const payPeriodDays = document.getElementById('payPeriodDays');
 const entryForm = document.getElementById('entryForm');
 const submitButton = document.getElementById('submitButton');
 const logTableBody = document.getElementById('logTableBody');
@@ -422,6 +437,8 @@ function saveDriverInfo() {
   localStorage.setItem('employeeNumber', employeeNumber.value);
   localStorage.setItem('payCutoffDate', payCutoffDate.value);
   localStorage.setItem('mileagePayGlobal', mileagePayGlobal.value);
+  localStorage.setItem('payFrequency', payFrequency.value);
+  localStorage.setItem('payPeriodDays', String(validPayPeriodDays()));
   scheduleCloudSync();
 }
 function loadDriverInfo() {
@@ -430,6 +447,24 @@ function loadDriverInfo() {
   employeeNumber.value = localStorage.getItem('employeeNumber') || '';
   payCutoffDate.value = localStorage.getItem('payCutoffDate') || '';
   mileagePayGlobal.value = localStorage.getItem('mileagePayGlobal') || '';
+  payFrequency.value = localStorage.getItem('payFrequency') || 'weekly';
+  payPeriodDays.value = localStorage.getItem('payPeriodDays') || '7';
+}
+
+const payFrequencyDays = { daily: 1, weekly: 7, biweekly: 14, monthly: 30 };
+
+function validPayPeriodDays() {
+  const days = Math.round(safeNumber(payPeriodDays.value));
+  const fallback = payFrequencyDays[payFrequency.value] || 7;
+  const validDays = days >= 1 && days <= 366 ? days : fallback;
+  payPeriodDays.value = validDays;
+  return validDays;
+}
+
+function updatePayFrequency() {
+  payPeriodDays.value = payFrequencyDays[payFrequency.value] || 7;
+  saveDriverInfo();
+  loadEntries();
 }
 
 // Calculate Unpaid Total
@@ -488,7 +523,9 @@ function cloudPayload() {
       truckNumber: truckNumber.value,
       employeeNumber: employeeNumber.value,
       payCutoffDate: payCutoffDate.value,
-      mileagePayGlobal: mileagePayGlobal.value
+      mileagePayGlobal: mileagePayGlobal.value,
+      payFrequency: payFrequency.value,
+      payPeriodDays: validPayPeriodDays()
     }
   };
 }
@@ -531,12 +568,16 @@ function applyCloudPayload(payload) {
     employeeNumber.value = settings.employeeNumber || '';
     payCutoffDate.value = settings.payCutoffDate || '';
     mileagePayGlobal.value = settings.mileagePayGlobal || '';
+    payFrequency.value = settings.payFrequency || 'weekly';
+    payPeriodDays.value = settings.payPeriodDays || payFrequencyDays[payFrequency.value] || 7;
     localStorage.setItem('entries', JSON.stringify(entries));
     localStorage.setItem('driverName', driverName.value);
     localStorage.setItem('truckNumber', truckNumber.value);
     localStorage.setItem('employeeNumber', employeeNumber.value);
     localStorage.setItem('payCutoffDate', payCutoffDate.value);
     localStorage.setItem('mileagePayGlobal', mileagePayGlobal.value);
+    localStorage.setItem('payFrequency', payFrequency.value);
+    localStorage.setItem('payPeriodDays', String(validPayPeriodDays()));
     loadEntries();
   } finally {
     applyingCloudData = false;
@@ -712,7 +753,9 @@ function downloadBackup() {
       truckNumber: truckNumber.value,
       employeeNumber: employeeNumber.value,
       payCutoffDate: payCutoffDate.value,
-      mileagePayGlobal: mileagePayGlobal.value
+      mileagePayGlobal: mileagePayGlobal.value,
+      payFrequency: payFrequency.value,
+      payPeriodDays: validPayPeriodDays()
     },
     entries
   };
@@ -782,6 +825,8 @@ function loadBackup(event) {
       employeeNumber.value = text(first(settings, ['employeeNumber', 'employee_number'], employeeNumber.value));
       payCutoffDate.value = text(first(settings, ['payCutoffDate', 'pay_cutoff_date'], payCutoffDate.value));
       mileagePayGlobal.value = text(first(settings, ['mileagePayGlobal', 'mileagePay', 'payRate'], mileagePayGlobal.value));
+      payFrequency.value = text(first(settings, ['payFrequency', 'pay_frequency'], payFrequency.value || 'weekly'));
+      payPeriodDays.value = text(first(settings, ['payPeriodDays', 'pay_period_days'], payPeriodDays.value || payFrequencyDays[payFrequency.value] || 7));
 
       entries = restored;
       saveEntries();
@@ -862,14 +907,16 @@ function generatePayHistory() {
   const cutoffDate = new Date(payCutoffDate.value);
   let periods = [];
 
-  // Go backwards weekly
+  const periodDays = validPayPeriodDays();
+
+  // Work backward from the selected cutoff using the configured pay-period length.
   let currentEnd = new Date(cutoffDate);
   let currentStart = new Date(cutoffDate);
-  currentStart.setDate(currentEnd.getDate() - 6);
+  currentStart.setDate(currentEnd.getDate() - (periodDays - 1));
 
   const sorted = entries.slice().sort((a,b) => new Date(a.date) - new Date(b.date));
 
-  while (currentEnd > new Date(sorted[0].date)) {
+  while (currentEnd >= new Date(sorted[0].date)) {
     const loads = sorted.filter(e => {
       const d = new Date(e.date);
       return d >= currentStart && d <= currentEnd;
@@ -893,8 +940,8 @@ function generatePayHistory() {
       payDate: new Date(currentEnd.getFullYear(), currentEnd.getMonth(), currentEnd.getDate() + 3).toISOString().split('T')[0] // Friday
     });
 
-    currentEnd.setDate(currentEnd.getDate() - 7);
-    currentStart.setDate(currentStart.getDate() - 7);
+    currentEnd.setDate(currentEnd.getDate() - periodDays);
+    currentStart.setDate(currentStart.getDate() - periodDays);
   }
 
   periods.forEach(p => {
@@ -918,8 +965,10 @@ window.onload = async () => {
   setDriverPanelCollapsed(localStorage.getItem('driverPanelCollapsed') === 'true');
   setSyncPanelCollapsed(localStorage.getItem('syncPanelCollapsed') === 'true');
   loadEntries();
-  [driverName, truckNumber, employeeNumber, payCutoffDate, mileagePayGlobal]
+  [driverName, truckNumber, employeeNumber, payCutoffDate, mileagePayGlobal, payPeriodDays]
     .forEach(input => input.addEventListener('change', saveDriverInfo));
+  payFrequency.addEventListener('change', updatePayFrequency);
+  payPeriodDays.addEventListener('change', loadEntries);
   const { data: { session } } = await supabaseClient.auth.getSession();
   await handleSession(session);
 };
