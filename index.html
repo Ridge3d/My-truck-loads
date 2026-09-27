@@ -72,8 +72,13 @@
     #logTable .month-row:hover { background: var(--swede-black); }
     #logTable .month-row td { padding: 9px 12px; border-color: var(--swede-dark-red); }
     .month-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: white; }
+    .month-heading-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; text-align: left; }
     .month-heading strong { font-size: 1.05rem; }
+    .month-total { color: #ffd6d6; font-weight: bold; }
     .month-heading button { min-width: 112px; margin: 0; padding: 7px 12px; }
+    #payHistoryTable .pay-month-row { background: var(--swede-black); }
+    #payHistoryTable .pay-month-row:hover { background: var(--swede-black); }
+    #payHistoryTable .pay-month-row td { padding: 9px 12px; border-color: var(--swede-dark-red); }
     .double-underline { font-weight: bold; margin: 20px auto; padding: 14px 20px; max-width: 520px; font-size: 1.3em; text-align: center; color: white; background: var(--swede-black); border-bottom: 5px double var(--swede-red); border-radius: 8px; }
     .averages-launch { display: flex; justify-content: center; margin: -8px 10px 22px; }
     .averages-launch button { min-width: 220px; }
@@ -132,7 +137,11 @@
       #logTable .month-row { margin: 18px 0 10px; padding: 0; border: 0; border-radius: 9px; }
       #logTable .month-row td { display: block; min-height: 0; padding: 10px; border: 0; }
       #logTable .month-row td::before { content: none; }
+      #payHistoryTable .pay-month-row { margin: 18px 0 10px; padding: 0; border: 0; border-radius: 9px; }
+      #payHistoryTable .pay-month-row td { display: block; min-height: 0; padding: 10px; border: 0; }
+      #payHistoryTable .pay-month-row td::before { content: none; }
       .month-heading { width: 100%; }
+      .month-heading-summary { display: grid; gap: 3px; }
       .month-heading strong { font-size: .98rem; }
       .month-heading button { width: auto; min-width: 104px; }
       #payHistoryTable tr { margin-left: 0; margin-right: 0; }
@@ -513,6 +522,23 @@ function toggleLoadMonth(monthKey) {
   collapsedLoadMonths[monthKey] = !collapsedLoadMonths[monthKey];
   localStorage.setItem('collapsedLoadMonths', JSON.stringify(collapsedLoadMonths));
   loadEntries();
+}
+
+function readCollapsedPayMonths() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('collapsedPayMonths') || '{}');
+    return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+let collapsedPayMonths = readCollapsedPayMonths();
+
+function togglePayMonth(monthKey) {
+  collapsedPayMonths[monthKey] = !collapsedPayMonths[monthKey];
+  localStorage.setItem('collapsedPayMonths', JSON.stringify(collapsedPayMonths));
+  generatePayHistory();
 }
 
 // Load Entries
@@ -1012,18 +1038,47 @@ function generatePayHistory() {
     currentStart.setDate(currentStart.getDate() - periodDays);
   }
 
-  periods.forEach(p => {
+  const payMonthGroups = new Map();
+  periods.forEach(period => {
+    const monthKey = loadMonthKey(period.payDate);
+    if (!payMonthGroups.has(monthKey)) payMonthGroups.set(monthKey, []);
+    payMonthGroups.get(monthKey).push(period);
+  });
+
+  const payMonthKeys = [...payMonthGroups.keys()];
+  const latestPayMonth = payMonthKeys.length ? payMonthKeys[0] : null;
+
+  payMonthGroups.forEach((monthPeriods, monthKey) => {
+    const collapsed = Object.prototype.hasOwnProperty.call(collapsedPayMonths, monthKey)
+      ? collapsedPayMonths[monthKey]
+      : monthKey !== latestPayMonth;
+    const monthPay = monthPeriods.reduce((sum, period) => sum + period.pay, 0);
+
     payHistoryBody.innerHTML += `
-      <tr>
-        <td data-label="Period Start">${p.start}</td>
-        <td data-label="Period End">${p.end}</td>
-        <td data-label="Total Loads">${p.loads}</td>
-        <td data-label="Total Miles">${p.miles}</td>
-        <td data-label="Extra Pay">$${p.extra.toFixed(2)}</td>
-        <td data-label="Total Pay">$${p.pay.toFixed(2)}</td>
-        <td data-label="Pay Date">${p.payDate}</td>
-      </tr>
-    `;
+      <tr class="pay-month-row">
+        <td colspan="7">
+          <div class="month-heading">
+            <div class="month-heading-summary">
+              <strong>${loadMonthLabel(monthKey)} (${monthPeriods.length} pay period${monthPeriods.length === 1 ? '' : 's'})</strong>
+              <span class="month-total">Monthly Total: $${monthPay.toFixed(2)}</span>
+            </div>
+            <button type="button" aria-expanded="${!collapsed}" onclick="togglePayMonth('${monthKey}')">${collapsed ? '+ Open Month' : '− Minimize'}</button>
+          </div>
+        </td>
+      </tr>`;
+
+    monthPeriods.forEach(p => {
+      payHistoryBody.innerHTML += `
+        <tr ${collapsed ? 'hidden' : ''}>
+          <td data-label="Period Start">${p.start}</td>
+          <td data-label="Period End">${p.end}</td>
+          <td data-label="Total Loads">${p.loads}</td>
+          <td data-label="Total Miles">${p.miles}</td>
+          <td data-label="Extra Pay">$${p.extra.toFixed(2)}</td>
+          <td data-label="Total Pay">$${p.pay.toFixed(2)}</td>
+          <td data-label="Pay Date">${p.payDate}</td>
+        </tr>`;
+    });
   });
 }
 
