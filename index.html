@@ -68,6 +68,12 @@
     tbody tr:nth-child(even) { background-color: #fff1f2; }
     tbody tr:hover { background-color: #f6cdd0; }
     .paid-row { background-color: #e3f2e5 !important; }
+    #logTable .month-row { background: var(--swede-black); }
+    #logTable .month-row:hover { background: var(--swede-black); }
+    #logTable .month-row td { padding: 9px 12px; border-color: var(--swede-dark-red); }
+    .month-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: white; }
+    .month-heading strong { font-size: 1.05rem; }
+    .month-heading button { min-width: 112px; margin: 0; padding: 7px 12px; }
     .double-underline { font-weight: bold; margin: 20px auto; padding: 14px 20px; max-width: 520px; font-size: 1.3em; text-align: center; color: white; background: var(--swede-black); border-bottom: 5px double var(--swede-red); border-radius: 8px; }
     .averages-launch { display: flex; justify-content: center; margin: -8px 10px 22px; }
     .averages-launch button { min-width: 220px; }
@@ -123,6 +129,12 @@
       #logTable thead, #payHistoryTable thead { display: none; }
       #logTable tbody, #payHistoryTable tbody { display: block; }
       #logTable tr, #payHistoryTable tr { display: block; margin: 0 10px 16px; padding: 8px 12px; background: white; border: 1px solid #d6b4b7; border-left: 6px solid var(--swede-red); border-radius: 10px; box-shadow: 0 3px 9px rgba(0,0,0,.12); }
+      #logTable .month-row { margin: 18px 0 10px; padding: 0; border: 0; border-radius: 9px; }
+      #logTable .month-row td { display: block; min-height: 0; padding: 10px; border: 0; }
+      #logTable .month-row td::before { content: none; }
+      .month-heading { width: 100%; }
+      .month-heading strong { font-size: .98rem; }
+      .month-heading button { width: auto; min-width: 104px; }
       #payHistoryTable tr { margin-left: 0; margin-right: 0; }
       #logTable td, #payHistoryTable td { display: grid; grid-template-columns: minmax(104px, 42%) 1fr; gap: 10px; align-items: center; min-height: 38px; padding: 8px 2px; border: 0; border-bottom: 1px solid #eee; text-align: right; overflow-wrap: anywhere; }
       #logTable td:last-child, #payHistoryTable td:last-child { border-bottom: 0; }
@@ -473,6 +485,36 @@ function calculateUnpaidTotal() {
     .reduce((sum, e) => sum + (safeNumber(e.loadedMileage) + safeNumber(e.emptyMileage)) * mileageRate() + safeNumber(e.extraIncome), 0);
 }
 
+function readCollapsedMonths() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('collapsedLoadMonths') || '{}');
+    return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+let collapsedLoadMonths = readCollapsedMonths();
+
+function loadMonthKey(dateText) {
+  const match = String(dateText || '').match(/^(\d{4})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}` : 'unknown';
+}
+
+function loadMonthLabel(monthKey) {
+  if (monthKey === 'unknown') return 'Date Not Set';
+  const [year, month] = monthKey.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString(undefined, {
+    month: 'long', year: 'numeric', timeZone: 'UTC'
+  });
+}
+
+function toggleLoadMonth(monthKey) {
+  collapsedLoadMonths[monthKey] = !collapsedLoadMonths[monthKey];
+  localStorage.setItem('collapsedLoadMonths', JSON.stringify(collapsedLoadMonths));
+  loadEntries();
+}
+
 // Load Entries
 function loadEntries() {
   const filter = paidFilter.value;
@@ -480,9 +522,34 @@ function loadEntries() {
   let totalIncome = 0;
   let shipperCounts = {}, destinationCounts = {}, trailerCounts = {};
 
-  entries.sort((a, b) => new Date(a.date) - new Date(b.date))
-    .filter(e => filter === 'all' || (filter === 'paid' && e.paid) || (filter === 'unpaid' && !e.paid))
-    .forEach((e, i) => {
+  entries.sort((a, b) => new Date(a.date) - new Date(b.date));
+  const visibleEntries = entries
+    .map((entry, entryIndex) => ({ entry, entryIndex }))
+    .filter(({ entry }) => filter === 'all' || (filter === 'paid' && entry.paid) || (filter === 'unpaid' && !entry.paid));
+  const latestMonth = visibleEntries.length ? loadMonthKey(visibleEntries[visibleEntries.length - 1].entry.date) : null;
+  const monthGroups = new Map();
+
+  visibleEntries.forEach(item => {
+    const monthKey = loadMonthKey(item.entry.date);
+    if (!monthGroups.has(monthKey)) monthGroups.set(monthKey, []);
+    monthGroups.get(monthKey).push(item);
+  });
+
+  monthGroups.forEach((monthEntries, monthKey) => {
+    const collapsed = Object.prototype.hasOwnProperty.call(collapsedLoadMonths, monthKey)
+      ? collapsedLoadMonths[monthKey]
+      : monthKey !== latestMonth;
+    logTableBody.innerHTML += `
+      <tr class="month-row">
+        <td colspan="13">
+          <div class="month-heading">
+            <strong>${loadMonthLabel(monthKey)} (${monthEntries.length} load${monthEntries.length === 1 ? '' : 's'})</strong>
+            <button type="button" aria-expanded="${!collapsed}" onclick="toggleLoadMonth('${monthKey}')">${collapsed ? '+ Open Month' : '− Minimize'}</button>
+          </div>
+        </td>
+      </tr>`;
+
+    monthEntries.forEach(({ entry: e, entryIndex }) => {
       const emptyMiles = safeNumber(e.emptyMileage);
       const loadedMiles = safeNumber(e.loadedMileage);
       const extraPay = safeNumber(e.extraIncome);
@@ -493,14 +560,15 @@ function loadEntries() {
       destinationCounts[e.destination] = (destinationCounts[e.destination] || 0) + 1;
       trailerCounts[e.trailer] = (trailerCounts[e.trailer] || 0) + 1;
       logTableBody.innerHTML += `
-        <tr class="${e.paid ? 'paid-row' : ''}">
-          <td data-label="#">${i + 1}</td><td data-label="Date">${e.date}</td><td data-label="Load">${e.loadNumber}</td><td data-label="Shipper">${e.shipper}</td>
+        <tr class="${e.paid ? 'paid-row' : ''}" ${collapsed ? 'hidden' : ''}>
+          <td data-label="#">${entryIndex + 1}</td><td data-label="Date">${e.date}</td><td data-label="Load">${e.loadNumber}</td><td data-label="Shipper">${e.shipper}</td>
           <td data-label="Destination">${e.destination}</td><td data-label="Trailer">${e.trailer}</td><td data-label="Empty Miles">${emptyMiles}</td><td data-label="Loaded Miles">${loadedMiles}</td>
           <td data-label="Pay Rate">$${rate.toFixed(2)}</td><td data-label="Extra Pay">$${extraPay.toFixed(2)}</td>
           <td data-label="Total">$${total.toFixed(2)}</td><td data-label="Paid">${e.paid ? '✅' : 'No'}</td>
-          <td data-label="Actions"><button aria-label="Edit load" onclick="editEntry(${i})">✏️</button><button aria-label="Delete load" onclick="deleteEntry(${i})">🗑️</button></td>
+          <td data-label="Actions"><button aria-label="Edit load" onclick="editEntry(${entryIndex})">✏️</button><button aria-label="Delete load" onclick="deleteEntry(${entryIndex})">🗑️</button></td>
         </tr>`;
     });
+  });
 
   totalsDiv.textContent = `Unpaid Cumulative Income: $${totalIncome.toFixed(2)}`;
   updateHistorical();
