@@ -68,6 +68,12 @@
     tbody tr:nth-child(even) { background-color: #fff1f2; }
     tbody tr:hover { background-color: #f6cdd0; }
     .paid-row { background-color: #e3f2e5 !important; }
+    #logTable td.zero-alert {background:#b91c1c!important;color:#fff!important;font-weight:800}
+    .load-search{margin:16px 20px 22px;padding:16px;background:white;border:2px solid var(--swede-red);border-radius:12px}
+    .load-search input{width:100%;max-width:650px;min-height:44px}
+    .load-search-results{display:grid;gap:8px;margin-top:12px}
+    .load-search-result{display:block;padding:12px;border-radius:8px;border:1px solid #d9a4a8;color:#171717;background:#fff7f7;text-decoration:none}
+    .load-search-result small{display:block;margin-top:4px;color:#555}
     #logTable .month-row { background: var(--swede-black); }
     #logTable .month-row:hover { background: var(--swede-black); }
     #logTable .month-row td { padding: 9px 12px; border-color: var(--swede-dark-red); }
@@ -262,6 +268,11 @@
   </div>
 </form>
 
+<section class="load-search" aria-label="Search loads">
+<label for="loadSearchInput">🔎 Search Loads</label>
+<input id="loadSearchInput" class="input" type="search" placeholder="Load number, trailer, shipper, destination, date, mileage, pay..." autocomplete="off">
+<div id="loadSearchResults" class="load-search-results" aria-live="polite"></div>
+</section>
 <!-- Hidden file input for Restore -->
 <input type="file" id="backupInput" style="display:none" onchange="loadBackup(event)">
 
@@ -558,6 +569,26 @@ function togglePayMonth(monthKey) {
   generatePayHistory();
 }
 
+const loadSearchInput=document.getElementById('loadSearchInput');
+const loadSearchResults=document.getElementById('loadSearchResults');
+function searchLoads(){
+  const q=loadSearchInput.value.trim().toLowerCase();
+  loadSearchResults.replaceChildren();
+  if(!q)return;
+  const matches=entries.map((entry,index)=>({entry,index})).filter(({entry})=>{
+    const miles=safeNumber(entry.emptyMileage)+safeNumber(entry.loadedMileage);
+    const pay=miles*mileageRate()+safeNumber(entry.extraIncome);
+    return [entry.date,entry.loadNumber,entry.shipper,entry.destination,entry.trailer,entry.emptyMileage,entry.loadedMileage,entry.extraIncome,entry.paid?'paid':'unpaid',miles,pay,pay.toFixed(2)].some(v=>String(v??'').toLowerCase().includes(q));
+  });
+  if(!matches.length){loadSearchResults.textContent='No matching loads found.';return}
+  matches.forEach(({entry,index})=>{
+    const link=document.createElement('a');link.className='load-search-result';link.href='load-detail.html?index='+index;
+    const strong=document.createElement('strong');strong.textContent='Load #'+(entry.loadNumber||'N/A')+' · '+(entry.date||'No date');
+    const small=document.createElement('small');small.textContent=(entry.shipper||'Unknown shipper')+' → '+(entry.destination||'Unknown destination')+' · Trailer '+(entry.trailer||'N/A')+' · '+(entry.paid?'Paid':'Unpaid');
+    link.append(strong,small);loadSearchResults.append(link);
+  });
+}
+loadSearchInput.addEventListener('input',searchLoads);
 // Load Entries
 function loadEntries() {
   const filter = paidFilter.value;
@@ -605,9 +636,9 @@ function loadEntries() {
       logTableBody.innerHTML += `
         <tr class="${e.paid ? 'paid-row' : ''}" ${collapsed ? 'hidden' : ''}>
           <td data-label="#">${entryIndex + 1}</td><td data-label="Date">${e.date}</td><td data-label="Load">${e.loadNumber}</td><td data-label="Shipper">${e.shipper}</td>
-          <td data-label="Destination">${e.destination}</td><td data-label="Trailer">${e.trailer}</td><td data-label="Empty Miles">${emptyMiles}</td><td data-label="Loaded Miles">${loadedMiles}</td>
-          <td data-label="Pay Rate">$${rate.toFixed(2)}</td><td data-label="Extra Pay">$${extraPay.toFixed(2)}</td>
-          <td data-label="Total">$${total.toFixed(2)}</td><td data-label="Paid">${e.paid ? '✅' : 'No'}</td>
+          <td data-label="Destination">${e.destination}</td><td data-label="Trailer">${e.trailer}</td><td data-label="Empty Miles" class="${!e.paid && emptyMiles === 0 ? 'zero-alert' : ''}">${emptyMiles}</td><td data-label="Loaded Miles" class="${!e.paid && loadedMiles === 0 ? 'zero-alert' : ''}">${loadedMiles}</td>
+          <td data-label="Pay Rate" class="${!e.paid && rate === 0 ? 'zero-alert' : ''}">${rate.toFixed(2)}</td><td data-label="Extra Pay" class="${!e.paid && extraPay === 0 ? 'zero-alert' : ''}">${extraPay.toFixed(2)}</td>
+          <td data-label="Total" class="${!e.paid && total === 0 ? 'zero-alert' : ''}">${total.toFixed(2)}</td><td data-label="Paid">${e.paid ? '✅' : 'No'}</td>
           <td data-label="Actions"><button aria-label="Edit load" onclick="editEntry(${entryIndex})">✏️</button><button aria-label="Delete load" onclick="deleteEntry(${entryIndex})">🗑️</button></td>
         </tr>`;
     });
@@ -617,6 +648,7 @@ function loadEntries() {
   updateHistorical();
   drawCharts(shipperCounts, destinationCounts, trailerCounts);
   generatePayHistory();
+  searchLoads();
 }
 
 // Save Entries
