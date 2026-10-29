@@ -28,6 +28,7 @@ const indexText=params.get('index');
 const index=indexText!==null&&/^\d+$/.test(indexText)?Number(indexText):-1;
 let entries=[];
 try{const saved=JSON.parse(localStorage.getItem('entries')||'[]');if(Array.isArray(saved))entries=saved;}catch(e){}
+entries.sort((a,b)=>new Date(a.date)-new Date(b.date));
 const e=index>=0?entries[index]:null;
 const details=document.getElementById('details');
 function number(v){const n=Number(typeof v==='string'?v.replace(/[$,]/g,''):v);return Number.isFinite(n)?n:0}
