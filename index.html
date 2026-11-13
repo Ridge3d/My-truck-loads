@@ -632,7 +632,9 @@ function loadEntries() {
       if (!e.paid) totalIncome += total;
       shipperCounts[e.shipper] = (shipperCounts[e.shipper] || 0) + 1;
       destinationCounts[e.destination] = (destinationCounts[e.destination] || 0) + 1;
-      trailerCounts[e.trailer] = (trailerCounts[e.trailer] || 0) + 1;
+      if (String(e.trailer ?? '').trim() && String(e.trailer).trim() !== '0') {
+        trailerCounts[e.trailer] = (trailerCounts[e.trailer] || 0) + 1;
+      }
       logTableBody.innerHTML += `
         <tr class="${e.paid ? 'paid-row' : ''}" ${collapsed ? 'hidden' : ''}>
           <td data-label="#">${entryIndex + 1}</td><td data-label="Date">${e.date}</td><td data-label="Load">${e.loadNumber}</td><td data-label="Shipper">${e.shipper}</td>
@@ -1006,7 +1008,9 @@ function updateHistorical() {
     if (e.loadedMileage > (longestLoaded.miles || 0)) longestLoaded = { miles: e.loadedMileage, shipper: e.shipper, destination: e.destination };
     const totalPay = (safeNumber(e.loadedMileage) + safeNumber(e.emptyMileage)) * mileageRate() + safeNumber(e.extraIncome);
     if (totalPay > (highestPay.amount || 0)) highestPay = { amount: totalPay, shipper: e.shipper, destination: e.destination };
-    trailerCount[e.trailer] = (trailerCount[e.trailer] || 0) + 1;
+    if (String(e.trailer ?? '').trim() && String(e.trailer).trim() !== '0') {
+      trailerCount[e.trailer] = (trailerCount[e.trailer] || 0) + 1;
+    }
   });
 
   const mostUsedTrailer = Object.entries(trailerCount).sort((a,b) => b[1] - a[1])[0];
