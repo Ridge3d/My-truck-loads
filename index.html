@@ -363,8 +363,8 @@
   <button onclick="hideContact()">Cancel</button>
 </div>
 <script>
-const SUPABASE_URL = 'https://btczxqgjnofyoqyfxiuc.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_RA-GnD9JawOi_Z1VgvcIlg_tUg-dswM';
+const SUPABASE_URL = 'https://ntxisqaisffqfrlpsezp.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_aNNxrUweqBb4rf3EB_50eg_cP_7WoMc';
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 let currentUser = null;
 let syncTimer = null;
@@ -742,7 +742,18 @@ async function pullCloudData({ uploadIfEmpty = false } = {}) {
     return;
   }
   if (!data) {
-    if (uploadIfEmpty) await pushCloudData();
+    if (uploadIfEmpty && entries.length > 0) {
+      // This is a new cloud account. Upload browser records rather than overwriting them.
+      await pushCloudData();
+    } else {
+      setSyncStatus('Connected. Cloud storage is empty; your local records are safe.');
+    }
+    return;
+  }
+  const remoteEntries = Array.isArray(data.payload?.entries) ? data.payload.entries : [];
+  if (entries.length > 0 && JSON.stringify(entries) !== JSON.stringify(remoteEntries)) {
+    // Prevent a stale or empty remote copy from silently replacing this device's load history.
+    setSyncStatus('Local and cloud loads differ. Local records preserved. Back up before choosing Sync Now to upload this device.', true);
     return;
   }
   applyCloudPayload(data.payload);
@@ -758,6 +769,11 @@ function subscribeToCloud() {
       filter: `user_id=eq.${currentUser.id}`
     }, ({ new: row }) => {
       if (row && row.payload) {
+        const incoming = Array.isArray(row.payload.entries) ? row.payload.entries : [];
+        if (entries.length && JSON.stringify(entries) !== JSON.stringify(incoming)) {
+          setSyncStatus('Cloud loads changed on another device. Local copy preserved; review before syncing.', true);
+          return;
+        }
         applyCloudPayload(row.payload);
         setSyncStatus('Synced from another device.');
       }
