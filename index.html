@@ -192,6 +192,7 @@
     </div>
     <div id="signedInControls" class="account-controls" hidden>
       <span id="signedInEmail"></span>
+      <button type="button" class="secondary-button" onclick="pullCloudData()">Get Cloud Updates</button>
       <button type="button" onclick="syncNow()">Sync Now</button>
       <button type="button" class="secondary-button" onclick="signOut()">Sign Out</button>
     </div>
@@ -687,8 +688,61 @@ function scheduleCloudSync() {
   syncTimer = setTimeout(pushCloudData, 500);
 }
 
+// Match cloud and browser entries by their load number, without deleting either copy.
+function sameLoad(a, b) {
+  const textFields = ['date', 'loadNumber', 'shipper', 'destination', 'trailer'];
+  const numberFields = ['emptyMileage', 'loadedMileage', 'extraIncome'];
+  return textFields.every(k => String(a[k] ?? '') === String(b[k] ?? ''))
+    && numberFields.every(k => Number(a[k] ?? 0) === Number(b[k] ?? 0))
+    && Boolean(a.paid) === Boolean(b.paid);
+}
+
+function mergeCloudAdditions(payload) {
+  const remoteEntries = Array.isArray(payload?.entries) ? payload.entries : [];
+  if (!entries.length) {
+    if (remoteEntries.length) applyCloudPayload(payload);
+    return { added: remoteEntries.length, conflicts: 0 };
+  }
+  const localByNumber = new Map(entries.map(e => [String(e.loadNumber ?? '').trim(), e]));
+  let added = 0, conflicts = 0;
+  for (const remote of remoteEntries) {
+    const key = String(remote.loadNumber ?? '').trim();
+    if (!key) continue;
+    if (!localByNumber.has(key)) {
+      entries.push(remote);
+      localByNumber.set(key, remote);
+      added++;
+    } else if (!sameLoad(localByNumber.get(key), remote)) {
+      // Do not automatically overwrite either version of an edited load.
+      conflicts++;
+    }
+  }
+  if (added) {
+    localStorage.setItem('entries', JSON.stringify(entries));
+    loadEntries();
+  }
+  return { added, conflicts };
+}
+
+async function readCloudData() {
+  const result = await supabaseClient.from('truck_load_sync')
+    .select('payload, updated_at').eq('user_id', currentUser.id).maybeSingle();
+  if (result.error) console.error('Cloud read failed:', result.error);
+  return result;
+}
+
 async function pushCloudData() {
   if (!currentUser || applyingCloudData) return;
+  clearTimeout(syncTimer);
+  // Read first: never replace records added from another device with an older local list.
+  const { data, error: readError } = await readCloudData();
+  if (readError) return setSyncStatus('Cloud check failed; nothing overwritten.', true);
+  if (data) {
+    const result = mergeCloudAdditions(data.payload);
+    if (result.conflicts) {
+      return setSyncStatus(result.conflicts + ' load(s) differ between phone and cloud. Nothing uploaded; your records are safe.', true);
+    }
+  }
   const { error } = await supabaseClient.from('truck_load_sync').upsert({
     user_id: currentUser.id,
     payload: cloudPayload(),
@@ -696,10 +750,10 @@ async function pushCloudData() {
   }, { onConflict: 'user_id' });
   if (error) {
     console.error('Cloud save failed:', error);
-    setSyncStatus('Cloud save failed — your local copy is safe.', true);
+    setSyncStatus('Cloud save failed; your local copy is safe.', true);
     return;
   }
-  setSyncStatus(`Synced ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
+  setSyncStatus('Synced ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
 }
 
 function applyCloudPayload(payload) {
@@ -729,56 +783,39 @@ function applyCloudPayload(payload) {
   }
 }
 
+
 async function pullCloudData({ uploadIfEmpty = false } = {}) {
   if (!currentUser) return;
-  setSyncStatus('Checking cloud data…');
-  const { data, error } = await supabaseClient.from('truck_load_sync')
-    .select('payload, updated_at')
-    .eq('user_id', currentUser.id)
-    .maybeSingle();
-  if (error) {
-    console.error('Cloud load failed:', error);
-    setSyncStatus('Could not reach the cloud — using local data.', true);
-    return;
-  }
+  setSyncStatus('Checking cloud updates…');
+  const { data, error } = await readCloudData();
+  if (error) return setSyncStatus('Could not reach cloud; local records are safe.', true);
   if (!data) {
-    if (uploadIfEmpty && entries.length > 0) {
-      // This is a new cloud account. Upload browser records rather than overwriting them.
-      await pushCloudData();
-    } else {
-      setSyncStatus('Connected. Cloud storage is empty; your local records are safe.');
-    }
+    if (uploadIfEmpty && entries.length) await pushCloudData();
+    else setSyncStatus('Cloud is empty; local records are safe.');
     return;
   }
-  const remoteEntries = Array.isArray(data.payload?.entries) ? data.payload.entries : [];
-  if (entries.length > 0 && JSON.stringify(entries) !== JSON.stringify(remoteEntries)) {
-    // Prevent a stale or empty remote copy from silently replacing this device's load history.
-    setSyncStatus('Local and cloud loads differ. Local records preserved. Back up before choosing Sync Now to upload this device.', true);
-    return;
-  }
-  applyCloudPayload(data.payload);
-  setSyncStatus(`Synced ${new Date(data.updated_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
+  const result = mergeCloudAdditions(data.payload);
+  const message = result.added
+    ? 'Received ' + result.added + ' new load(s) from cloud.'
+    : 'Cloud checked; no new loads.';
+  setSyncStatus(result.conflicts
+    ? message + ' ' + result.conflicts + ' edited load(s) need review; neither version was overwritten.'
+    : message, !!result.conflicts);
 }
 
 function subscribeToCloud() {
   if (syncChannel) supabaseClient.removeChannel(syncChannel);
   if (!currentUser) return;
-  syncChannel = supabaseClient.channel(`truck-loads-${currentUser.id}`)
+  syncChannel = supabaseClient.channel('truck-loads-' + currentUser.id)
     .on('postgres_changes', {
       event: '*', schema: 'public', table: 'truck_load_sync',
-      filter: `user_id=eq.${currentUser.id}`
+      filter: 'user_id=eq.' + currentUser.id
     }, ({ new: row }) => {
-      if (row && row.payload) {
-        const incoming = Array.isArray(row.payload.entries) ? row.payload.entries : [];
-        if (entries.length && JSON.stringify(entries) !== JSON.stringify(incoming)) {
-          setSyncStatus('Cloud loads changed on another device. Local copy preserved; review before syncing.', true);
-          return;
-        }
-        applyCloudPayload(row.payload);
-        setSyncStatus('Synced from another device.');
-      }
-    })
-    .subscribe();
+      if (!row || !row.payload) return;
+      const result = mergeCloudAdditions(row.payload);
+      if (result.added) setSyncStatus('Received ' + result.added + ' new cloud load(s).');
+      if (result.conflicts) setSyncStatus('Cloud has ' + result.conflicts + ' edited load(s) that need review. Local data preserved.', true);
+    }).subscribe();
 }
 
 async function handleSession(session) {
