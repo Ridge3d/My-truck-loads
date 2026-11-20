@@ -197,6 +197,8 @@
       <button type="button" class="secondary-button" onclick="signOut()">Sign Out</button>
     </div>
     <p id="syncStatus" role="status">Local mode — sign in to sync across devices.</p>
+    <button type="button" id="reviewCloudButton" class="secondary-button" onclick="reviewCloudConflicts()" hidden>Review Cloud Changes</button>
+    <div id="cloudConflictReview" hidden style="background:#fff;color:#171717;padding:14px;border-radius:10px;margin-top:12px;max-height:65vh;overflow:auto"></div>
   </div>
 </section>
 
@@ -697,10 +699,24 @@ function sameLoad(a, b) {
     && Boolean(a.paid) === Boolean(b.paid);
 }
 
+const reviewCloudButton = document.getElementById('reviewCloudButton');
+const cloudConflictReview = document.getElementById('cloudConflictReview');
+let cloudConflictSnapshot = null;
+let cloudConflictChoices = {};
+
+function conflictEntries(payload) {
+  const remote = Array.isArray(payload?.entries) ? payload.entries : [];
+  const local = new Map(entries.map(e => [String(e.loadNumber ?? '').trim(), e]));
+  return remote.filter(e => local.has(String(e.loadNumber ?? '').trim())
+    && !sameLoad(local.get(String(e.loadNumber ?? '').trim()), e))
+    .map(e => ({ key: String(e.loadNumber ?? '').trim(), cloud: e, phone: local.get(String(e.loadNumber ?? '').trim()) }));
+}
+
 function mergeCloudAdditions(payload) {
   const remoteEntries = Array.isArray(payload?.entries) ? payload.entries : [];
   if (!entries.length) {
     if (remoteEntries.length) applyCloudPayload(payload);
+    reviewCloudButton.hidden = true;
     return { added: remoteEntries.length, conflicts: 0 };
   }
   const localByNumber = new Map(entries.map(e => [String(e.loadNumber ?? '').trim(), e]));
@@ -712,16 +728,103 @@ function mergeCloudAdditions(payload) {
       entries.push(remote);
       localByNumber.set(key, remote);
       added++;
-    } else if (!sameLoad(localByNumber.get(key), remote)) {
-      // Do not automatically overwrite either version of an edited load.
-      conflicts++;
-    }
+    } else if (!sameLoad(localByNumber.get(key), remote)) conflicts++;
   }
   if (added) {
     localStorage.setItem('entries', JSON.stringify(entries));
     loadEntries();
   }
+  reviewCloudButton.hidden = !conflicts;
+  if (!conflicts) cloudConflictReview.hidden = true;
   return { added, conflicts };
+}
+
+async function reviewCloudConflicts() {
+  if (!currentUser) return;
+  const { data, error } = await readCloudData();
+  if (error || !data) return setSyncStatus('Cannot review cloud right now. Nothing changed.', true);
+  cloudConflictSnapshot = data.payload;
+  cloudConflictChoices = {};
+  renderCloudConflictReview();
+}
+
+function renderCloudConflictReview() {
+  const conflicts = conflictEntries(cloudConflictSnapshot);
+  cloudConflictReview.replaceChildren();
+  cloudConflictReview.hidden = !conflicts.length;
+  if (!conflicts.length) return;
+  const heading = document.createElement('h3');
+  heading.textContent = 'Review ' + conflicts.length + ' changed load(s)';
+  cloudConflictReview.appendChild(heading);
+  const note = document.createElement('p');
+  note.textContent = 'Compare each field. Choose Cloud or Phone for every load, then apply. A local backup of both versions is made first.';
+  cloudConflictReview.appendChild(note);
+  for (const item of conflicts) {
+    const section = document.createElement('section');
+    section.style.cssText = 'border-top:1px solid #bbb;padding:12px 0';
+    const h = document.createElement('h4');
+    h.textContent = 'Load #' + item.key;
+    section.appendChild(h);
+    for (const field of ['date','shipper','destination','trailer','emptyMileage','loadedMileage','extraIncome','paid']) {
+      if (String(item.phone[field] ?? '') === String(item.cloud[field] ?? '')) continue;
+      const p = document.createElement('p');
+      p.style.cssText = 'font-size:14px;overflow-wrap:anywhere';
+      p.textContent = field + ': Phone ' + String(item.phone[field] ?? '') + ' | Cloud ' + String(item.cloud[field] ?? '');
+      section.appendChild(p);
+    }
+    const select = document.createElement('select');
+    select.style.cssText = 'width:100%;padding:10px;color:#171717;background:white;border:1px solid #999';
+    [['','Choose which version to keep'],['cloud','Use Cloud version'],['phone','Use Phone version']].forEach(([value,label]) => {
+      const option = document.createElement('option'); option.value=value;option.textContent=label;select.appendChild(option);
+    });
+    select.value = cloudConflictChoices[item.key] || '';
+    select.addEventListener('change', () => { cloudConflictChoices[item.key] = select.value; });
+    section.appendChild(select);
+    cloudConflictReview.appendChild(section);
+  }
+  const apply = document.createElement('button');
+  apply.type = 'button'; apply.textContent = 'Apply Reviewed Choices';
+  apply.addEventListener('click', applyCloudConflictChoices);
+  cloudConflictReview.appendChild(apply);
+}
+
+async function applyCloudConflictChoices() {
+  if (!currentUser || !cloudConflictSnapshot) return;
+  const conflicts = conflictEntries(cloudConflictSnapshot);
+  if (conflicts.some(c => !['cloud','phone'].includes(cloudConflictChoices[c.key])))
+    return setSyncStatus('Choose Cloud or Phone for every conflicting load first.', true);
+  const { data, error } = await readCloudData();
+  if (error || !data || JSON.stringify(data.payload) !== JSON.stringify(cloudConflictSnapshot))
+    return setSyncStatus('Cloud changed during review. Reopen Review Cloud Changes before applying.', true);
+  const stamp = new Date().toISOString();
+  try {
+    localStorage.setItem('truckLoadConflictBackup_' + stamp, JSON.stringify({
+      phoneEntries: entries, cloudPayload: data.payload
+    }));
+  } catch (e) {
+    return setSyncStatus('Could not create safety backup. Nothing changed.', true);
+  }
+  const chosen = new Map(conflicts.map(c => [c.key, cloudConflictChoices[c.key] === 'cloud' ? c.cloud : c.phone]));
+  const remoteEntries = data.payload.entries.map(e => chosen.get(String(e.loadNumber ?? '').trim()) || e);
+  const localByNumber = new Map(entries.map(e => [String(e.loadNumber ?? '').trim(), e]));
+  for (const remote of remoteEntries) localByNumber.set(String(remote.loadNumber ?? '').trim(), remote);
+  const mergedEntries = [...localByNumber.values()];
+  const updatedPayload = { ...data.payload, entries: mergedEntries };
+  const { error: writeError } = await supabaseClient.from('truck_load_sync').upsert({
+    user_id: currentUser.id, payload: updatedPayload, updated_at: new Date().toISOString()
+  }, { onConflict: 'user_id' });
+  if (writeError) return setSyncStatus('Cloud save failed. Backup kept; phone unchanged.', true);
+  applyingCloudData = true;
+  try {
+    entries = mergedEntries;
+    localStorage.setItem('entries', JSON.stringify(entries));
+    loadEntries();
+  } finally { applyingCloudData = false; }
+  cloudConflictSnapshot = null;
+  cloudConflictChoices = {};
+  cloudConflictReview.hidden = true;
+  reviewCloudButton.hidden = true;
+  setSyncStatus('Reviewed changes saved to phone and cloud. Backup kept on this device.');
 }
 
 async function readCloudData() {
